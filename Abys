@@ -1,0 +1,360 @@
+-- SERVIÇOS
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- GUI
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local ScreenGui = Instance.new("ScreenGui", PlayerGui)
+ScreenGui.Name = "AbysGui"
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+MainFrame.Size = UDim2.new(0, 220, 0, 360)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.BorderSizePixel = 0
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Text = "Abys"
+Title.Font = Enum.Font.GothamBold
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundTransparency = 1
+Title.TextSize = 20
+
+local function CreateButton(text, yOffset)
+	local button = Instance.new("TextButton", MainFrame)
+	button.Text = text
+	button.Size = UDim2.new(0.8, 0, 0, 30)
+	button.Position = UDim2.new(0.1, 0, 0, yOffset)
+	button.BackgroundColor3 = Color3.fromRGB(128, 0, 128)
+	button.BorderSizePixel = 0
+	button.TextColor3 = Color3.new(1,1,1)
+	button.Font = Enum.Font.Gotham
+	button.TextSize = 16
+	return button
+end
+
+-- BOTÕES
+local AimbotButton = CreateButton("Aimbot: OFF", 40)
+local EspToggleButton = CreateButton("ESP: OFF", 80)
+local EspBoxButton = CreateButton("ESP Box: OFF", 120)
+local EspLineButton = CreateButton("Tracker: OFF", 160)
+local EspSkeletonButton = CreateButton("Skeleton: OFF", 200)
+local ColorButton = CreateButton("🎨 Cores", 240)
+
+-- PALETA DE CORES
+local selectedColor = Color3.fromRGB(0, 0, 0) -- Cor padrão PRETA
+
+local PaletteFrame = Instance.new("Frame", MainFrame)
+PaletteFrame.Position = UDim2.new(0.1, 0, 0, 280)
+PaletteFrame.Size = UDim2.new(0.8, 0, 0, 0)
+PaletteFrame.BackgroundTransparency = 1
+PaletteFrame.ClipsDescendants = true
+
+local colorOptions = {
+	Color3.fromRGB(255, 0, 0),
+	Color3.fromRGB(0, 255, 0),
+	Color3.fromRGB(0, 170, 255),
+	Color3.fromRGB(255, 255, 0),
+	Color3.fromRGB(255, 0, 255),
+	Color3.fromRGB(0, 255, 255),
+	Color3.fromRGB(255, 165, 0),
+	Color3.fromRGB(255, 255, 255),
+	Color3.fromRGB(0, 0, 0), -- adiciona a cor preta no seletor também
+}
+
+for i, color in ipairs(colorOptions) do
+	local colorBtn = Instance.new("TextButton", PaletteFrame)
+	colorBtn.Size = UDim2.new(0, 25, 0, 25)
+	colorBtn.Position = UDim2.new(0, ((i - 1) * 28), 0, 0)
+	colorBtn.BackgroundColor3 = color
+	colorBtn.BorderSizePixel = 0
+	colorBtn.Text = ""
+	colorBtn.MouseButton1Click:Connect(function()
+		selectedColor = color
+		-- Atualiza a cor do FOV também
+		fovCircle.Color = selectedColor
+	end)
+end
+
+local paletteVisible = false
+ColorButton.MouseButton1Click:Connect(function()
+	paletteVisible = not paletteVisible
+	if paletteVisible then
+		PaletteFrame:TweenSize(UDim2.new(0.8, 0, 0, 30), "Out", "Quad", 0.2, true)
+	else
+		PaletteFrame:TweenSize(UDim2.new(0.8, 0, 0, 0), "In", "Quad", 0.2, true)
+	end
+end)
+
+-- ESTADOS
+local aimbotEnabled = false
+local espEnabled = false
+local espBox = false
+local espLines = false
+local espSkeleton = false
+local holdingRightClick = false
+
+-- FOV CIRCLE
+local fovCircle = Drawing.new("Circle")
+fovCircle.Color = selectedColor -- começa preto
+fovCircle.Thickness = 1
+fovCircle.Transparency = 0.7
+fovCircle.Radius = 80
+fovCircle.NumSides = 64
+fovCircle.Filled = false
+fovCircle.Visible = false
+
+-- DRAWINGS ESP
+local drawings = {}
+
+local function createESPForPlayer(plr)
+	local char = plr.Character
+	if not char then return end
+
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	drawings[plr] = drawings[plr] or {}
+
+	if espBox and not drawings[plr]["Box"] then
+		local box = Drawing.new("Square")
+		box.Color = selectedColor
+		box.Thickness = 1
+		box.Transparency = 1
+		box.Visible = true
+		drawings[plr]["Box"] = box
+	end
+
+	if espLines and not drawings[plr]["Line"] then
+		local line = Drawing.new("Line")
+		line.Color = selectedColor
+		line.Thickness = 1
+		line.Transparency = 1
+		line.Visible = true
+		drawings[plr]["Line"] = line
+	end
+
+	if espSkeleton and not drawings[plr]["Skeleton"] then
+		drawings[plr]["Skeleton"] = {}
+		local function createBone()
+			local bone = Drawing.new("Line")
+			bone.Color = selectedColor
+			bone.Thickness = 1
+			bone.Transparency = 1
+			bone.Visible = true
+			return bone
+		end
+		-- cria linhas do esqueleto
+		for i=1,14 do
+			table.insert(drawings[plr]["Skeleton"], createBone())
+		end
+	end
+end
+
+local function removeESPForPlayer(plr)
+	if drawings[plr] then
+		for k,v in pairs(drawings[plr]) do
+			if k == "Skeleton" then
+				for _, bone in pairs(v) do
+					bone:Remove()
+				end
+			else
+				v:Remove()
+			end
+		end
+		drawings[plr] = nil
+	end
+end
+
+local function clearESP()
+	for _, v in pairs(drawings) do
+		for _, obj in pairs(v) do
+			if typeof(obj) == "table" then
+				for _, sub in pairs(obj) do
+					if typeof(sub) == "Drawing" then
+						sub:Remove()
+					end
+				end
+			elseif typeof(obj) == "Drawing" then
+				obj:Remove()
+			end
+		end
+	end
+	drawings = {}
+end
+
+-- ESP LOOP
+RunService.RenderStepped:Connect(function()
+	fovCircle.Position = UserInputService:GetMouseLocation()
+	fovCircle.Visible = aimbotEnabled
+
+	if not espEnabled then
+		clearESP()
+		return
+	end
+
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			local char = plr.Character
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+			if hrp and humanoid and humanoid.Health > 0 then
+				createESPForPlayer(plr)
+
+				local hrpPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+				if onScreen and drawings[plr] then
+					if drawings[plr]["Box"] and espBox then
+						local size = Vector3.new(2, 3, 1.5) * 1.5
+						local topLeft = Camera:WorldToViewportPoint((hrp.CFrame * CFrame.new(-size.X/2, size.Y/2, 0)).Position)
+						local bottomRight = Camera:WorldToViewportPoint((hrp.CFrame * CFrame.new(size.X/2, -size.Y/2, 0)).Position)
+						local box = drawings[plr]["Box"]
+						box.Position = Vector2.new(topLeft.X, topLeft.Y)
+						box.Size = Vector2.new(bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y)
+						box.Color = selectedColor
+						box.Visible = true
+					elseif drawings[plr]["Box"] then
+						drawings[plr]["Box"].Visible = false
+					end
+
+					if drawings[plr]["Line"] and espLines then
+						local line = drawings[plr]["Line"]
+						line.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+						line.To = Vector2.new(hrpPos.X, hrpPos.Y)
+						line.Color = selectedColor
+						line.Visible = true
+					elseif drawings[plr]["Line"] then
+						drawings[plr]["Line"].Visible = false
+					end
+
+					if drawings[plr]["Skeleton"] and espSkeleton then
+						local function updateBone(boneIndex, p1, p2)
+							if char:FindFirstChild(p1) and char:FindFirstChild(p2) then
+								local a = Camera:WorldToViewportPoint(char[p1].Position)
+								local b = Camera:WorldToViewportPoint(char[p2].Position)
+								local bone = drawings[plr]["Skeleton"][boneIndex]
+								bone.From = Vector2.new(a.X, a.Y)
+								bone.To = Vector2.new(b.X, b.Y)
+								bone.Color = selectedColor
+								bone.Visible = true
+							else
+								local bone = drawings[plr]["Skeleton"][boneIndex]
+								bone.Visible = false
+							end
+						end
+
+						updateBone(1, "Head", "UpperTorso")
+						updateBone(2, "UpperTorso", "LowerTorso")
+						updateBone(3, "UpperTorso", "LeftUpperArm")
+						updateBone(4, "LeftUpperArm", "LeftLowerArm")
+						updateBone(5, "LeftLowerArm", "LeftHand")
+						updateBone(6, "UpperTorso", "RightUpperArm")
+						updateBone(7, "RightUpperArm", "RightLowerArm")
+						updateBone(8, "RightLowerArm", "RightHand")
+						updateBone(9, "LowerTorso", "LeftUpperLeg")
+						updateBone(10, "LeftUpperLeg", "LeftLowerLeg")
+						updateBone(11, "LeftLowerLeg", "LeftFoot")
+						updateBone(12, "LowerTorso", "RightUpperLeg")
+						updateBone(13, "RightUpperLeg", "RightLowerLeg")
+						updateBone(14, "RightLowerLeg", "RightFoot")
+					elseif drawings[plr]["Skeleton"] then
+						for _, bone in pairs(drawings[plr]["Skeleton"]) do
+							bone.Visible = false
+						end
+					end
+				else
+					-- Se não estiver na tela, esconde as drawings
+					if drawings[plr]["Box"] then drawings[plr]["Box"].Visible = false end
+					if drawings[plr]["Line"] then drawings[plr]["Line"].Visible = false end
+					if drawings[plr]["Skeleton"] then
+						for _, bone in pairs(drawings[plr]["Skeleton"]) do
+							bone.Visible = false
+						end
+					end
+				end
+			else
+				removeESPForPlayer(plr)
+			end
+		else
+			removeESPForPlayer(plr)
+		end
+	end
+end)
+
+-- Aimbot lógica
+UserInputService.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		holdingRightClick = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		holdingRightClick = false
+	end
+end)
+
+local function getClosestPlayer()
+	local shortest = math.huge
+	local closest = nil
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+			local pos = Camera:WorldToViewportPoint(plr.Character.HumanoidRootPart.Position)
+			local dist = (Vector2.new(pos.X, pos.Y) - UserInputService:GetMouseLocation()).Magnitude
+			if dist < fovCircle.Radius and dist < shortest then
+				shortest = dist
+				closest = plr
+			end
+		end
+	end
+	return closest
+end
+
+RunService.RenderStepped:Connect(function()
+	if holdingRightClick and aimbotEnabled then
+		local target = getClosestPlayer()
+		if target and target.Character and target.Character:FindFirstChild("Head") then
+			local aimPart = target.Character.Head
+			local camPos = Camera.CFrame.Position
+			local tween = TweenService:Create(Camera, TweenInfo.new(0, Enum.EasingStyle.Sine), {
+				CFrame = CFrame.new(camPos, aimPart.Position)
+			})
+			tween:Play()
+		end
+	end
+end)
+
+-- BOTÕES FUNCIONAIS
+AimbotButton.MouseButton1Click:Connect(function()
+	aimbotEnabled = not aimbotEnabled
+	AimbotButton.Text = "Aimbot: " .. (aimbotEnabled and "ON" or "OFF")
+end)
+
+EspToggleButton.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	EspToggleButton.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
+	if not espEnabled then clearESP() end
+end)
+
+EspBoxButton.MouseButton1Click:Connect(function()
+	espBox = not espBox
+	EspBoxButton.Text = "ESP Box: " .. (espBox and "ON" or "OFF")
+end)
+
+EspLineButton.MouseButton1Click:Connect(function()
+	espLines = not espLines
+	EspLineButton.Text = "Tracker: " .. (espLines and "ON" or "OFF")
+end)
+
+EspSkeletonButton.MouseButton1Click:Connect(function()
+	espSkeleton = not espSkeleton
+	EspSkeletonButton.Text = "Skeleton: " .. (espSkeleton and "ON" or "OFF")
+end)
